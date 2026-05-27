@@ -1,0 +1,13 @@
+[provider]
+name = "anthropic"
+model = "claude-sonnet-4-6"
+api_key = "YOUR_ANTHROPIC_API_KEY"
+
+[ignore]
+paths = ["target/", "Cargo.lock"]
+
+[repo]
+preconditions = ["Focus on correctness, regressions, and security."]
+
+[output]
+path = "lensora-review.md"
