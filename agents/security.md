@@ -12,7 +12,7 @@ Review the code for:
 4. Hardcoded secrets: passwords, API keys, tokens, encryption keys, or credentials embedded directly in the code.
 5. Cryptographic misuse: use of broken algorithms (MD5, SHA1 for security purposes, DES), weak random number generation (`rand()` for security-sensitive values instead of a CSPRNG), incorrect IV or key handling, rolling custom crypto.
 6. Authentication and authorization logic: missing access checks, bypassable conditions, logic flaws that allow privilege escalation if the code implements any auth.
-7. Unsafe coding patterns with security implications: use of `strcpy`, `strcat`, `sprintf`, `gets` or other unbounded C string functions, unsafe casts that bypass type safety.
+7. Unsafe patterns with security implications: unbounded string handling, unsafe casts that bypass type safety, or security-sensitive handling of filesystem paths and external input.
 8. Information disclosure: error messages or logs that expose sensitive internal state, stack traces, or secrets to untrusted parties.
 
 Severity rules:
@@ -24,7 +24,7 @@ Severity rules:
 
 Line numbers: always identify the exact line where the vulnerability originates. If it spans a range, use the first line.
 
-Respond ONLY with a valid JSON object with this exact structure. No markdown, no code fences, no explanation outside the JSON:
+Respond ONLY with a valid JSON object with this exact structure:
 
 {
   "summary": "A brief overall security assessment of the code.",

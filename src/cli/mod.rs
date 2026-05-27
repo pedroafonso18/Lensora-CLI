@@ -65,5 +65,11 @@ pub fn run() -> anyhow::Result<()> {
         println!("  {}", agent_result.summary);
     }
 
+    if let Some(output_path) = &config.output.path {
+        review::export_report(output_path, &report)?;
+        println!();
+        println!("{} {}", "Report exported to".dimmed(), output_path.green());
+    }
+
     Ok(())
 }

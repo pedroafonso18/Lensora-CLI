@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use serde_json::Value;
 
@@ -9,6 +10,7 @@ use super::provider::{ProviderClient, ReviewProvider, ReviewRequest};
 
 #[derive(Debug)]
 pub struct ReviewReport {
+    pub reviewed_files: Vec<String>,
     pub agent_results: Vec<AgentResult>,
 }
 
@@ -47,7 +49,18 @@ pub fn run_review(config: &LensoraConfig, selected_files: &[ChangedFile]) -> any
         });
     }
 
-    Ok(ReviewReport { agent_results })
+    Ok(ReviewReport {
+        reviewed_files: selected_files
+            .iter()
+            .map(|file| file.path.display().to_string())
+            .collect(),
+        agent_results,
+    })
+}
+
+pub fn export_report(output_path: &str, report: &ReviewReport) -> anyhow::Result<()> {
+    fs::write(output_path, render_report(report))?;
+    Ok(())
 }
 
 fn build_explanation(config: &LensoraConfig, selected_files: &[ChangedFile]) -> String {
@@ -101,9 +114,29 @@ fn build_diff_payload(selected_files: &[ChangedFile]) -> String {
 
 fn build_user_prompt(code: &str, explanation: &str) -> String {
     format!(
-        "code:\n```diff\n{}\n```\n\nexplanation:\n{}",
+        "code:\n```diff\n{}\n```\n\nexplanation:\n{}\n\nReturn only the review JSON. Do not propose patches or code changes.",
         code, explanation
     )
+}
+
+fn render_report(report: &ReviewReport) -> String {
+    let mut output = String::new();
+
+    output.push_str("# Lensora Review Report\n\n");
+
+    output.push_str("## Files Reviewed\n\n");
+    for file in &report.reviewed_files {
+        output.push_str(&format!("- {}\n", file));
+    }
+    output.push_str("\n");
+
+    for agent_result in &report.agent_results {
+        output.push_str(&format!("## {}\n\n", agent_result.agent_name));
+        output.push_str(&format!("Status: {}\n\n", agent_result.status));
+        output.push_str(&format!("Summary: {}\n\n", agent_result.summary));
+    }
+
+    output
 }
 
 fn summarize_output(parsed_output: &Option<Value>, raw_output: &str) -> String {
@@ -149,7 +182,7 @@ fn strip_json_fences(raw_output: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::build_user_prompt;
+    use super::{build_user_prompt, render_report, AgentResult, ReviewReport};
 
     #[test]
     fn builds_prompt_with_code_and_explanation() {
@@ -159,5 +192,27 @@ mod tests {
         assert!(prompt.contains("diff body"));
         assert!(prompt.contains("explanation:"));
         assert!(prompt.contains("repo notes"));
+        assert!(prompt.contains("Do not propose patches or code changes."));
+    }
+
+    #[test]
+    fn renders_report_markdown() {
+        let report = ReviewReport {
+            reviewed_files: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+            agent_results: vec![AgentResult {
+                agent_name: "bug".to_string(),
+                status: "ok".to_string(),
+                summary: "1 finding(s)".to_string(),
+            }],
+        };
+
+        let rendered = render_report(&report);
+
+        assert!(rendered.contains("# Lensora Review Report"));
+        assert!(rendered.contains("## Files Reviewed"));
+        assert!(rendered.contains("- src/main.rs"));
+        assert!(rendered.contains("- src/lib.rs"));
+        assert!(rendered.contains("## bug"));
+        assert!(rendered.contains("Summary: 1 finding(s)"));
     }
 }

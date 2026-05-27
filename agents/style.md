@@ -19,7 +19,7 @@ Severity rules:
 
 Line numbers: always identify the exact line where the issue starts. If the issue spans a range, use the first line.
 
-Respond ONLY with a valid JSON object with this exact structure. No markdown, no code fences, no explanation outside the JSON:
+Respond ONLY with a valid JSON object with this exact structure:
 
 {
   "summary": "A brief overall assessment of the code style quality.",
