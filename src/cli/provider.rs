@@ -1,12 +1,8 @@
 use crate::cli::agent::AgentSpec;
 use crate::cli::config::ProviderConfig;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
-
-pub trait ReviewProvider {
-    fn review(&self, agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String>;
-}
 
 #[derive(Debug, Clone)]
 pub struct ReviewRequest {
@@ -15,12 +11,20 @@ pub struct ReviewRequest {
     pub user_prompt: String,
 }
 
+#[derive(Clone)]
 pub enum ProviderClient {
     Anthropic(AnthropicClient),
     OpenAi(OpenAiClient),
 }
 
 impl ProviderClient {
+    pub async fn review(&self, agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+        match self {
+            ProviderClient::Anthropic(provider) => provider.review(agent, request).await,
+            ProviderClient::OpenAi(provider) => provider.review(agent, request).await,
+        }
+    }
+
     pub fn from_config(config: &ProviderConfig) -> anyhow::Result<Self> {
         let api_key = if let Some(api_key) = &config.api_key {
             api_key.clone()
@@ -48,22 +52,14 @@ impl ProviderClient {
     }
 }
 
-impl ReviewProvider for ProviderClient {
-    fn review(&self, agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
-        match self {
-            ProviderClient::Anthropic(provider) => provider.review(agent, request),
-            ProviderClient::OpenAi(provider) => provider.review(agent, request),
-        }
-    }
-}
-
+#[derive(Clone)]
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
 }
 
-impl ReviewProvider for AnthropicClient {
-    fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+impl AnthropicClient {
+    pub async fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
@@ -77,6 +73,7 @@ impl ReviewProvider for AnthropicClient {
                 "messages": [{"role": "user", "content": request.user_prompt}],
             }))
             .send()
+            .await
             .map_err(|error| {
                 if error.is_timeout() {
                     anyhow::anyhow!("Anthropic request timed out after 120 seconds")
@@ -86,7 +83,7 @@ impl ReviewProvider for AnthropicClient {
             })?;
 
         let status = response.status();
-        let body = response.text()?;
+        let body = response.text().await?;
 
         if !status.is_success() {
             anyhow::bail!("Anthropic API error {status}: {body}");
@@ -97,13 +94,14 @@ impl ReviewProvider for AnthropicClient {
     }
 }
 
+#[derive(Clone)]
 pub struct OpenAiClient {
     client: Client,
     api_key: String,
 }
 
-impl ReviewProvider for OpenAiClient {
-    fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+impl OpenAiClient {
+    pub async fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
         let response = self
             .client
             .post("https://api.openai.com/v1/chat/completions")
@@ -118,6 +116,7 @@ impl ReviewProvider for OpenAiClient {
                 ],
             }))
             .send()
+            .await
             .map_err(|error| {
                 if error.is_timeout() {
                     anyhow::anyhow!("OpenAI request timed out after 120 seconds")
@@ -127,7 +126,7 @@ impl ReviewProvider for OpenAiClient {
             })?;
 
         let status = response.status();
-        let body = response.text()?;
+        let body = response.text().await?;
 
         if !status.is_success() {
             anyhow::bail!("OpenAI API error {status}: {body}");

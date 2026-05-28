@@ -2,11 +2,12 @@ use std::path::PathBuf;
 use std::fs;
 
 use serde_json::Value;
+use tokio::task::JoinSet;
 
 use super::agent::load_agents;
 use super::config::LensoraConfig;
 use super::diff::ChangedFile;
-use super::provider::{ProviderClient, ReviewProvider, ReviewRequest};
+use super::provider::{ProviderClient, ReviewRequest};
 
 #[derive(Debug)]
 pub struct ReviewReport {
@@ -21,33 +22,45 @@ pub struct AgentResult {
     pub summary: String,
 }
 
-pub fn run_review(config: &LensoraConfig, selected_files: &[ChangedFile]) -> anyhow::Result<ReviewReport> {
+pub async fn run_review(config: &LensoraConfig, selected_files: &[ChangedFile]) -> anyhow::Result<ReviewReport> {
     let agent_dir = PathBuf::from("agents");
     let agents = load_agents(&agent_dir)?;
     let provider = ProviderClient::from_config(&config.provider)?;
 
     let explanation = build_explanation(config, selected_files);
     let code = build_diff_payload(selected_files);
+    let user_prompt = build_user_prompt(&code, &explanation);
 
-    let mut agent_results = Vec::new();
+    let mut tasks = JoinSet::new();
 
     for agent in agents {
+        let provider = provider.clone();
         let request = ReviewRequest {
             model: config.provider.model.clone(),
             system_prompt: agent.prompt.clone(),
-            user_prompt: build_user_prompt(&code, &explanation),
+            user_prompt: user_prompt.clone(),
         };
 
-        let raw_output = provider.review(&agent, &request)?;
-        let parsed_output = parse_review_json(&raw_output);
-        let summary = summarize_output(&parsed_output, &raw_output);
+        tasks.spawn(async move {
+            let raw_output = provider.review(&agent, &request).await?;
+            let parsed_output = parse_review_json(&raw_output);
+            let summary = summarize_output(&parsed_output, &raw_output);
 
-        agent_results.push(AgentResult {
-            agent_name: agent.name.clone(),
-            status: "ok".to_string(),
-            summary,
+            Ok::<AgentResult, anyhow::Error>(AgentResult {
+                agent_name: agent.name.clone(),
+                status: "ok".to_string(),
+                summary,
+            })
         });
     }
+
+    let mut agent_results = Vec::new();
+
+    while let Some(result) = tasks.join_next().await {
+        agent_results.push(result??);
+    }
+
+    agent_results.sort_by(|left, right| left.agent_name.cmp(&right.agent_name));
 
     Ok(ReviewReport {
         reviewed_files: selected_files

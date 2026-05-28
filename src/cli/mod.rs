@@ -22,7 +22,7 @@ struct Cli {
     print_config: bool,
 }
 
-pub fn run() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = config::LensoraConfig::load_or_default(&cli.config)?;
 
@@ -51,7 +51,7 @@ pub fn run() -> anyhow::Result<()> {
         println!("  {}", file.path.display().to_string().green());
     }
 
-    let report = review::run_review(&config, &selected_files)?;
+    let report = review::run_review(&config, &selected_files).await?;
 
     println!();
     println!("{}", "Review results".bold().cyan());
