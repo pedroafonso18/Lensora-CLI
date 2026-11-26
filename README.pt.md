@@ -99,7 +99,7 @@ Use este bloco para registrar precondições, observações ou contexto fixo sob
 
 ### Output
 
-O campo `output.path` está reservado para exportação futura do relatório e já faz parte da configuração.
+O campo `output.path` exporta o relatório em Markdown, com achados, falhas e consolidação.
 
 ## Agentes
 
@@ -113,7 +113,7 @@ Exemplos atuais:
 - `security.md`
 - `style.md`
 
-Esses agentes são carregados em tempo de execução e recebem o diff selecionado mais o contexto da revisão.
+Os prompts padrão vêm com a CLI. Para usar seus próprios arquivos Markdown, configure `[agents]` com `path = "/caminho/para/agents"`. Os especialistas rodam em paralelo e recebem o diff selecionado e as precondições do repositório. O arquivo opcional `consistency.md` recebe os resultados depois. Prompts personalizados devem seguir o novo contrato de saída acrescentado pela CLI.
 
 ## Como executar
 

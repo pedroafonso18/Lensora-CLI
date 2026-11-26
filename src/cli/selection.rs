@@ -37,14 +37,22 @@ pub fn choose_files(files: &[ChangedFile]) -> anyhow::Result<Vec<ChangedFile>> {
         io::stdout().flush()?;
 
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        if io::stdin().read_line(&mut input)? == 0 {
+            return Ok(Vec::new());
+        }
         let input = input.trim();
 
         if input.is_empty() || input.eq_ignore_ascii_case("a") {
             return Ok(files.to_vec());
         }
 
-        let indexes = parse_selection(input, files.len())?;
+        let indexes = match parse_selection(input, files.len()) {
+            Ok(indexes) => indexes,
+            Err(error) => {
+                eprintln!("{}", error.to_string().red());
+                continue;
+            }
+        };
 
         if indexes.is_empty() {
             println!("{}", "No valid files selected. Try again.".red());

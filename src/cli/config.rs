@@ -9,6 +9,7 @@ pub struct LensoraConfig {
     pub ignore: IgnoreConfig,
     pub repo: RepoConfig,
     pub output: OutputConfig,
+    pub agents: AgentsConfig,
 }
 
 impl LensoraConfig {
@@ -46,6 +47,7 @@ impl Default for LensoraConfig {
             ignore: IgnoreConfig::default(),
             repo: RepoConfig::default(),
             output: OutputConfig::default(),
+            agents: AgentsConfig::default(),
         }
     }
 }
@@ -122,4 +124,9 @@ where
     {
         self.map_err(|error| anyhow::Error::new(error).context(f()))
     }
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct AgentsConfig {
+    pub path: Option<std::path::PathBuf>,
 }

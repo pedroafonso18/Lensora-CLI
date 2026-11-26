@@ -18,20 +18,41 @@ pub struct RepoDiff {
 pub fn collect_repo_diff(ignore_patterns: &[String]) -> anyhow::Result<RepoDiff> {
     let repo_root = repo_root()?;
 
-    let staged_paths = git_lines(&repo_root, &["diff", "--name-only", "--cached", "--diff-filter=ACMR"])?;
-    let unstaged_paths = git_lines(&repo_root, &["diff", "--name-only", "--diff-filter=ACMR"])?;
-    let untracked_paths = git_lines(&repo_root, &["ls-files", "--others", "--exclude-standard"])?;
-    let untracked_paths: BTreeSet<PathBuf> = untracked_paths.into_iter().map(PathBuf::from).collect();
+    let staged_paths = git_paths(
+        &repo_root,
+        &[
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "--cached",
+            "--diff-filter=ACDM",
+        ],
+    )?;
+    let unstaged_paths = git_paths(
+        &repo_root,
+        &[
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "--diff-filter=ACDM",
+        ],
+    )?;
+    let untracked_paths: BTreeSet<_> = git_paths(
+        &repo_root,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+    )?
+    .into_iter()
+    .collect();
 
     let mut files = BTreeMap::<PathBuf, ChangedFile>::new();
 
     for path in staged_paths
         .into_iter()
-        .chain(unstaged_paths.into_iter())
-        .chain(untracked_paths.iter().map(|path| path.to_string_lossy().to_string()))
+        .chain(unstaged_paths)
+        .chain(untracked_paths.iter().cloned())
     {
-        let path = PathBuf::from(path);
-
         if should_ignore(&path, ignore_patterns) {
             continue;
         }
@@ -45,14 +66,12 @@ pub fn collect_repo_diff(ignore_patterns: &[String]) -> anyhow::Result<RepoDiff>
     }
 
     for file in files.values_mut() {
-        if file.untracked {
-            file.unstaged_diff = Some(untracked_diff(&repo_root, &file.path)?);
-            continue;
-        }
-
-        let path_arg = file.path.to_string_lossy().to_string();
-        let staged = git_text(&repo_root, &["diff", "--cached", "--unified=3", "--", &path_arg])?;
-        let unstaged = git_text(&repo_root, &["diff", "--unified=3", "--", &path_arg])?;
+        let staged = tracked_diff(&repo_root, &file.path, true)?;
+        let unstaged = if file.untracked {
+            untracked_diff(&repo_root, &file.path)?
+        } else {
+            tracked_diff(&repo_root, &file.path, false)?
+        };
 
         if !staged.trim().is_empty() {
             file.staged_diff = Some(staged);
@@ -69,63 +88,84 @@ pub fn collect_repo_diff(ignore_patterns: &[String]) -> anyhow::Result<RepoDiff>
 }
 
 fn repo_root() -> anyhow::Result<PathBuf> {
-    let output = Command::new("git").args(["rev-parse", "--show-toplevel"]).output()?;
-
-    if !output.status.success() {
-        return Ok(std::env::current_dir()?);
+    let mut command = Command::new("git");
+    command.args(["rev-parse", "--show-toplevel"]);
+    let mut root = git_output(command, false)?;
+    if root.last() == Some(&b'\n') {
+        root.pop();
     }
-
-    let root = String::from_utf8(output.stdout)?.trim().to_string();
-    Ok(PathBuf::from(root))
+    path_from_git(&root)
 }
 
-fn git_lines(repo_root: &Path, args: &[&str]) -> anyhow::Result<Vec<String>> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(args)
-        .output()?;
-
-    if !output.status.success() {
-        return Ok(Vec::new());
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
-    Ok(stdout
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
-        .collect())
+#[cfg(unix)]
+fn path_from_git(bytes: &[u8]) -> anyhow::Result<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
 }
 
-fn git_text(repo_root: &Path, args: &[&str]) -> anyhow::Result<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(args)
-        .output()?;
+#[cfg(not(unix))]
+fn path_from_git(bytes: &[u8]) -> anyhow::Result<PathBuf> {
+    Ok(PathBuf::from(std::str::from_utf8(bytes)?))
+}
 
-    if !output.status.success() {
-        return Ok(String::new());
+fn git_paths(repo_root: &Path, args: &[&str]) -> anyhow::Result<Vec<PathBuf>> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo_root).args(args);
+    git_output(command, false)?
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(path_from_git)
+        .collect()
+}
+
+fn tracked_diff(repo_root: &Path, path: &Path, staged: bool) -> anyhow::Result<String> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo_root).args([
+        "--literal-pathspecs",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--unified=3",
+    ]);
+    if staged {
+        command.arg("--cached");
     }
-
-    Ok(String::from_utf8(output.stdout)?)
+    command.arg("--").arg(path);
+    Ok(String::from_utf8_lossy(&git_output(command, false)?).into_owned())
 }
 
 fn untracked_diff(repo_root: &Path, path: &Path) -> anyhow::Result<String> {
-    let path_arg = path.to_string_lossy().to_string();
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(repo_root)
-        .args(["diff", "--no-index", "--", "/dev/null", &path_arg])
-        .output()?;
+        .args([
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--",
+            "/dev/null",
+        ])
+        .arg(Path::new(".").join(path));
+    Ok(String::from_utf8_lossy(&git_output(command, true)?).into_owned())
+}
 
-    if output.status.success() || output.status.code() == Some(1) {
-        return Ok(String::from_utf8(output.stdout)?);
+fn git_output(mut command: Command, allow_diff_exit: bool) -> anyhow::Result<Vec<u8>> {
+    let output = command.output()?;
+    if output.status.success()
+        || (allow_diff_exit
+            && output.status.code() == Some(1)
+            && (output.stderr.is_empty() || !output.stdout.is_empty()))
+    {
+        return Ok(output.stdout);
     }
-
-    Ok(String::new())
+    anyhow::bail!(
+        "Git failed ({}): {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
 }
 
 fn should_ignore(path: &Path, ignore_patterns: &[String]) -> bool {

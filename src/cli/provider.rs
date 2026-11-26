@@ -1,4 +1,3 @@
-use crate::cli::agent::AgentSpec;
 use crate::cli::config::ProviderConfig;
 use reqwest::Client;
 use serde_json::json;
@@ -18,10 +17,10 @@ pub enum ProviderClient {
 }
 
 impl ProviderClient {
-    pub async fn review(&self, agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+    pub async fn review(&self, request: &ReviewRequest) -> anyhow::Result<String> {
         match self {
-            ProviderClient::Anthropic(provider) => provider.review(agent, request).await,
-            ProviderClient::OpenAi(provider) => provider.review(agent, request).await,
+            ProviderClient::Anthropic(provider) => provider.review(request).await,
+            ProviderClient::OpenAi(provider) => provider.review(request).await,
         }
     }
 
@@ -59,7 +58,7 @@ pub struct AnthropicClient {
 }
 
 impl AnthropicClient {
-    pub async fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+    pub async fn review(&self, request: &ReviewRequest) -> anyhow::Result<String> {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
@@ -101,7 +100,7 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    pub async fn review(&self, _agent: &AgentSpec, request: &ReviewRequest) -> anyhow::Result<String> {
+    pub async fn review(&self, request: &ReviewRequest) -> anyhow::Result<String> {
         let response = self
             .client
             .post("https://api.openai.com/v1/chat/completions")
@@ -149,12 +148,13 @@ fn extract_anthropic_text(value: &serde_json::Value) -> anyhow::Result<String> {
     let content = value
         .get("content")
         .and_then(|content| content.as_array())
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("text"))
-        .and_then(|text| text.as_str())
-        .unwrap_or_default();
-
-    Ok(content.to_string())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("text").and_then(|text| text.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::ensure!(!content.trim().is_empty(), "Anthropic returned no review text");
+    Ok(content)
 }
 
 fn extract_openai_text(value: &serde_json::Value) -> anyhow::Result<String> {
@@ -167,5 +167,6 @@ fn extract_openai_text(value: &serde_json::Value) -> anyhow::Result<String> {
         .and_then(|content| content.as_str())
         .unwrap_or_default();
 
+    anyhow::ensure!(!content.trim().is_empty(), "OpenAI returned no review text");
     Ok(content.to_string())
 }

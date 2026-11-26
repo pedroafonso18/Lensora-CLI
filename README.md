@@ -101,7 +101,7 @@ Use this section for fixed repository notes, preconditions, or context that shou
 
 ### Output
 
-`output.path` is reserved for future report export support and is already part of the config model.
+`output.path` exports the Markdown report, including findings, failures, and consolidation.
 
 ## Agents
 
@@ -115,7 +115,7 @@ Current agents:
 - `security.md`
 - `style.md`
 
-They are loaded at runtime and receive the selected diff plus review context.
+Default prompts are bundled with the CLI. To use custom Markdown files, configure `[agents]` with `path = "/path/to/agents"`. Specialists run in parallel with the selected diff and repository preconditions. The optional `consistency.md` receives their results afterward. Custom prompts should follow the output contract appended by the CLI.
 
 ## Run
 

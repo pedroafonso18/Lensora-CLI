@@ -44,6 +44,10 @@ pub async fn run() -> anyhow::Result<()> {
     println!("{} {}", "Found changed files:".bold().cyan(), repo_diff.files.len().to_string().yellow());
 
     let selected_files = selection::choose_files(&repo_diff.files)?;
+    if selected_files.is_empty() {
+        println!("Review cancelled.");
+        return Ok(());
+    }
 
     println!();
     println!("{} {}", "Selected for review:".bold().cyan(), selected_files.len().to_string().yellow());
@@ -55,15 +59,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     println!();
     println!("{}", "Review results".bold().cyan());
-    for (index, agent_result) in report.agent_results.iter().enumerate() {
-        if index > 0 {
-            println!();
-        }
-
-        println!("{}", agent_result.agent_name.bold().blue());
-        println!("  {} {}", "status:".dimmed(), agent_result.status.green());
-        println!("  {}", agent_result.summary);
-    }
+    print!("{}", review::render_report(&report));
 
     if let Some(output_path) = &config.output.path {
         review::export_report(output_path, &report)?;
